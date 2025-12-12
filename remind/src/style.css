@@ -1,0 +1,25 @@
+@import url('https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+  --font-primary: "Urbanist", sans-serif;
+}
+
+html {
+  /* O padrão dos navegadores é 16px. 
+     Vamos aumentar para 18px (ou tente 20px se quiser maior). */
+  font-size: 18px; 
+}
+
+* {
+  font-family: "Urbanist", sans-serif !important;
+}
+
+input, button, textarea, select, a, p, span, h1, h2, h3, h4, h5, h6 {
+  font-family: "Urbanist", sans-serif !important;
+}
+
+body {
+  margin: 0;
+  background-color: #0B1240;
+  -webkit-font-smoothing: antialiased;
+}

@@ -1,0 +1,17 @@
+:root {
+  /* Paleta ReMind Oficial */
+  --color-blue: #0B1240;   /* Midnight Blue */
+  --color-purple: #8456B5; /* Electric Purple */
+  --color-cyan: #00D2FF;   /* Neon Cyan */
+  --color-white: #FFFFFF;
+  --color-cool-gray: #555B70;
+  --color-blue-button-hover: linear-gradient(135deg, #3943B7 50%, var(--color-cyan) 100%);
+  --color-bg: #F4F6F8;     /* cinza bem clarinho para o fundo das telas */
+
+  /* Degradês */
+  --gradient-brain: linear-gradient(135deg, var(--color-blue) 0%, var(--color-purple) 50%, var(--color-cyan) 100%);
+  --gradient-button: linear-gradient(135deg, var(--color-blue) 0%, var(--color-purple) 100%);
+
+  /* Fontes */
+  --font-primary: "Urbanist", sans-serif;
+}
