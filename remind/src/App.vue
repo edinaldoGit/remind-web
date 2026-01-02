@@ -1,19 +1,21 @@
 <script setup>
-  import LoginView from './views/auth/LoginView.vue'
+  import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <LoginView />
+  <RouterView />
 </template>
 
 <style>
-/* Reset Global */
+/* Reset Global mantendo suas configurações */
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
   overflow: hidden; 
   background-color: #0B1240; 
-  font-family: 'Inter', sans-serif;
+  /* Se você já configurou a Urbanist no main.css, ela funcionará. 
+     Se não, pode manter a Inter aqui por enquanto */
+  font-family: 'Urbanist', 'Inter', sans-serif;
 }
 </style>

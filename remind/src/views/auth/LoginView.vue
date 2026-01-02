@@ -1,6 +1,9 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router' // 1. Importando o roteador
 import LogoInicio from '../../assets/img/LogoInicio.png'
+
+const router = useRouter() // 2. Iniciando o roteador
 
 const isLogin = ref(true)
 
@@ -17,9 +20,15 @@ const toggleMode = () => {
 
 const handleSubmit = () => {
   if (isLogin.value) {
-    alert(`Enviando Login: ${form.value.email}`)
+    // Lógica de Login
+    // Aqui futuramente validaremos com a API do Marcos
+    
+    // 3. Redireciona para o painel principal
+    router.push('/app/dashboard') 
   } else {
+    // Lógica de Cadastro
     alert(`Enviando Cadastro: ${form.value.nome}`)
+    // Após cadastrar, você pode redirecionar para o login ou direto pro dashboard
   }
 }
 </script>
