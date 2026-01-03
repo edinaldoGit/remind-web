@@ -2,88 +2,80 @@
 // ==========================================
 // 1. IMPORTS
 // ==========================================
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useScheduleStore } from '../../stores/scheduleStore'
 
 // ==========================================
-// 2. MODEL ACCESS (Store)
+// 2. STORE
 // ==========================================
 const scheduleStore = useScheduleStore()
 
 // ==========================================
-// 3. VIEW MODEL (Lógica de Tela)
+// 3. ESTADO DA UI
 // ==========================================
+const activeTab = ref('logs')
 
-// Estado da UI (Qual aba está visível)
-const activeTab = ref('logs') // 'logs' | 'subjects'
-
-// --- Formatadores (Helpers de Apresentação) ---
-
-/**
- * Formata a data para exibição na tabela.
- * @param {string|number} dateStr - Dia do mês
- * @param {string} timeStr - Hora (HH:mm)
- */
-const formatDate = (dateStr, timeStr) => {
-  // Nota: Aqui assumimos que dateStr é o dia do mês atual ou uma string simples.
-  // Se mudar o formato no backend, ajustar aqui.
-  return `Dia ${dateStr} às ${timeStr}`
-}
-
-/**
- * Converte minutos totais em string legível (ex: "1h 30m").
- * @param {number} totalMinutes 
- */
+// ==========================================
+// 4. HELPERS
+// ==========================================
 const formatDuration = (totalMinutes) => {
   if (!totalMinutes) return '0m'
   const h = Math.floor(totalMinutes / 60)
   const m = totalMinutes % 60
-  
   if (h > 0 && m > 0) return `${h}h ${m}m`
   if (h > 0) return `${h}h`
   return `${m}m`
 }
 
-// --- Dados Computados ---
+// ==========================================
+// 5. DADOS NORMALIZADOS (STORE)
+// ==========================================
+const logs = computed(() => scheduleStore.historyStudies || [])
 
-/**
- * Retorna os logs de estudo ordenados do mais recente (ID maior) para o mais antigo.
- * Isso garante que o último estudo apareça no topo da tabela.
- */
-const sortedLogs = computed(() => {
-  // Cria uma cópia com [...] para não mutar o array original do Pinia durante o sort
-  return [...scheduleStore.studyLogs].sort((a, b) => b.id - a.id)
+// ==========================================
+// 6. LOAD INICIAL
+// ==========================================
+onMounted(async () => {
+  await scheduleStore.loadHistory()
 })
 </script>
 
 <template>
   <div class="management-container">
-    
+
+    <!-- HEADER -->
     <header class="page-header">
       <h2>Histórico e Gestão</h2>
       <p>Visualize todo o seu progresso e gerencie suas matérias.</p>
     </header>
 
+    <!-- TABS -->
     <div class="tabs-header">
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'logs' }" 
-        @click="activeTab = 'logs'">
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'logs' }"
+        @click="activeTab = 'logs'"
+      >
         <i class="bi bi-clock-history"></i> Histórico de Estudos
       </button>
-      <button 
-        class="tab-btn" 
-        :class="{ active: activeTab === 'subjects' }" 
-        @click="activeTab = 'subjects'">
+
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'subjects' }"
+        @click="activeTab = 'subjects'"
+      >
         <i class="bi bi-bookmarks"></i> Disciplinas
       </button>
     </div>
 
     <div class="tab-content">
-      
+
+      <!-- =============================== -->
+      <!-- HISTÓRICO -->
+      <!-- =============================== -->
       <section v-if="activeTab === 'logs'" class="content-section slide-up">
-        
-        <div v-if="sortedLogs.length > 0" class="table-container">
+
+        <div v-if="logs.length > 0" class="table-container">
           <table>
             <thead>
               <tr>
@@ -91,23 +83,28 @@ const sortedLogs = computed(() => {
                 <th>Disciplina</th>
                 <th>Tópico Estudado</th>
                 <th>Tempo</th>
-                <th>Ações</th>
               </tr>
             </thead>
+
             <tbody>
-              <tr v-for="log in sortedLogs" :key="log.id">
+              <tr v-for="log in logs" :key="log.id">
                 <td class="col-date">
-                  <i class="bi bi-calendar3"></i> {{ formatDate(log.day, log.time) }}
+                  <i class="bi bi-calendar3"></i>
+                  {{ log.date }} às {{ log.time }}
                 </td>
+
                 <td>
-                  <span class="subject-badge">{{ log.subject }}</span>
+                  <span class="subject-badge">
+                    {{ log.disciplina }}
+                  </span>
                 </td>
-                <td class="col-topic">{{ log.topic }}</td>
-                <td class="col-duration">{{ formatDuration(log.duration) }}</td>
-                <td class="col-actions">
-                  <button class="btn-icon-delete" @click="scheduleStore.deleteStudyLog(log.id)" title="Excluir Registro">
-                    <i class="bi bi-trash"></i>
-                  </button>
+
+                <td class="col-topic">
+                  {{ log.conteudo }}
+                </td>
+
+                <td class="col-duration">
+                  {{ formatDuration(log.duration) }}
                 </td>
               </tr>
             </tbody>
@@ -121,16 +118,29 @@ const sortedLogs = computed(() => {
 
       </section>
 
+      <!-- =============================== -->
+      <!-- DISCIPLINAS -->
+      <!-- =============================== -->
       <section v-if="activeTab === 'subjects'" class="content-section slide-up">
-        
+
         <div v-if="scheduleStore.subjects.length > 0" class="subjects-grid">
-          <div v-for="sub in scheduleStore.subjects" :key="sub.id" class="subject-card" :style="{ borderTopColor: sub.color }">
+          <div
+            v-for="sub in scheduleStore.subjects"
+            :key="sub.id"
+            class="subject-card"
+            :style="{ borderTopColor: sub.color }"
+          >
             <div class="card-color-dot" :style="{ background: sub.color }"></div>
+
             <div class="card-info">
               <h3>{{ sub.name }}</h3>
               <p>Disciplina Ativa</p>
             </div>
-            <button class="btn-delete-sub" @click="scheduleStore.deleteSubject(sub.id)">
+
+            <button
+              class="btn-delete-sub"
+              @click="scheduleStore.deleteSubject(sub.id)"
+            >
               Excluir
             </button>
           </div>

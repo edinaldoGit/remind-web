@@ -1,131 +1,88 @@
 <script setup>
-// ==========================================
-// 1. IMPORTS
-// ==========================================
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useScheduleStore } from '../../stores/scheduleStore'
 
-// ==========================================
-// 2. MODEL ACCESS (Store)
-// ==========================================
 const scheduleStore = useScheduleStore()
 
-// ==========================================
-// 3. VIEW MODEL (Lógica de Tela)
-// ==========================================
-
-// --- Estado Local (UI State) ---
-// Controla qual card está expandido para inserção de tempo
-const activeCardId = ref(null) 
+// ==============================
+// UI STATE
+// ==============================
+const activeCardId = ref(null)
 const timeForm = ref({ hours: 0, minutes: 30 })
 
-/**
- * Helper para verificar se uma data já passou.
- * @param {string} dateStr - Data em formato ISO (YYYY-MM-DD)
- * @returns {boolean} True se a data for anterior a hoje.
- */
-const isOverdue = (dateStr) => {
-  const date = new Date(dateStr + 'T00:00:00')
+// ==============================
+// HELPERS
+// ==============================
+const isOverdue = (isoDate) => {
+  const date = new Date(isoDate + 'T00:00:00')
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return date < today
 }
 
-// --- Listas Computadas (Transformação de Dados) ---
-
-/**
- * Lista "A Fazer":
- * Filtra apenas revisões pendentes que estão agendadas para 
- * hoje ou dias passados (atrasadas).
- */
-const todoList = computed(() => {
-  const today = new Date()
-  today.setHours(23, 59, 59, 999)
-
-  return scheduleStore.futureReviews
-    .filter(r => {
-      // 1. Deve estar pendente
-      if (r.status !== 'pending') return false
-      
-      // 2. A data deve ser Hoje ou Passado
-      const reviewDate = new Date(r.fullDate + 'T00:00:00')
-      return reviewDate <= today
-    })
-    .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate))
-})
-
-/**
- * Lista "Concluídas":
- * Apenas itens marcados como 'done', invertidos para mostrar os recentes primeiro.
- */
-const doneList = computed(() => {
-  return scheduleStore.futureReviews
-    .filter(r => r.status === 'done')
-    .reverse()
-})
-
-// Contador de itens atrasados para exibir no Badge
-const overdueCount = computed(() => {
-  return todoList.value.filter(t => isOverdue(t.fullDate)).length
-})
-
-// --- Helpers Visuais ---
-
 const getSubjectColor = (subjectName) => {
   const subject = scheduleStore.subjects.find(s => s.name === subjectName)
-  return subject ? subject.color : '#999'
+  return subject?.color || '#999'
 }
 
-const getReviewLabel = (topic, dateStr) => {
-  if (isOverdue(dateStr)) return 'Atrasada'
-  // Extrai o tipo de revisão do tópico (Ex: "Revisão 1: ...")
-  if (topic.includes('Revisão 1')) return 'D+1'
-  if (topic.includes('Revisão 2')) return 'D+7'
-  if (topic.includes('Revisão 3')) return 'D+14'
-  return 'Revisão'
+const getReviewLabel = (date) => {
+  return isOverdue(date) ? 'Atrasada' : 'Revisão'
 }
 
-// ==========================================
-// 4. ACTIONS (Interações do Usuário)
-// ==========================================
+// ==============================
+// LISTAS (STORE-FIRST)
+// ==============================
+const todoList = computed(() =>
+  scheduleStore.scheduleStudies.filter(r => r.status === 'pending')
+)
 
-/**
- * Abre/Fecha a gaveta de input de tempo.
- * Reseta o formulário ao abrir um novo card.
- */
+const doneList = computed(() =>
+  scheduleStore.scheduleStudies.filter(r => r.status === 'done')
+)
+
+const overdueCount = computed(() =>
+  todoList.value.filter(t => isOverdue(t.date)).length
+)
+
+// ==============================
+// ACTIONS
+// ==============================
 const toggleDrawer = (task) => {
-  if (activeCardId.value === task.id) {
-    activeCardId.value = null // Fecha
-  } else {
-    activeCardId.value = task.id // Abre
-    timeForm.value = { hours: 0, minutes: 30 } // Reseta
-  }
+  activeCardId.value = activeCardId.value === task.id ? null : task.id
+  timeForm.value = { hours: 0, minutes: 30 }
 }
 
-/**
- * Valida o formulário e envia para a Store processar a conclusão.
- */
-const confirmCompletion = (task) => {
-  const totalMinutes = (parseInt(timeForm.value.hours) || 0) * 60 + (parseInt(timeForm.value.minutes) || 0)
-  
-  if (totalMinutes === 0) {
-    alert("Informe o tempo dedicado.")
+const confirmCompletion = async (task) => {
+  const totalMinutes =
+    (parseInt(timeForm.value.hours) || 0) * 60 +
+    (parseInt(timeForm.value.minutes) || 0)
+
+  if (!totalMinutes) {
+    alert('Informe o tempo dedicado.')
     return
   }
 
-  // Delega a lógica de negócio para a Store (Model)
-  scheduleStore.completeReview(task.id, totalMinutes)
-  
-  activeCardId.value = null // Fecha gaveta
+  await scheduleStore.completeReview(task.id, totalMinutes)
+  activeCardId.value = null
 }
+
+// ==============================
+// LOAD
+// ==============================
+onMounted(async () => {
+  const today = new Date().toISOString().split('T')[0]
+  await scheduleStore.loadSchedule(today)
+})
 </script>
 
 <template>
   <div class="reviews-container">
-    
+
+    <!-- HEADER -->
     <header class="page-header">
       <div class="header-titles">
         <h2>Painel de Revisões</h2>
+
         <div class="badge-pill warning" v-if="overdueCount > 0">
           <i class="bi bi-exclamation-circle-fill"></i>
           {{ overdueCount }} Atrasadas
@@ -134,7 +91,10 @@ const confirmCompletion = (task) => {
     </header>
 
     <div class="kanban-board">
-      
+
+      <!-- =============================== -->
+      <!-- A FAZER -->
+      <!-- =============================== -->
       <section class="column todo-column">
         <header class="column-header">
           <div class="title-group">
@@ -144,71 +104,89 @@ const confirmCompletion = (task) => {
         </header>
 
         <div class="task-list">
-          <div 
-            v-for="task in todoList" 
-            :key="task.id" 
+          <div
+            v-for="task in todoList"
+            :key="task.id"
             class="task-card-wrapper slide-up"
-            :class="{ 'expanded': activeCardId === task.id }"
+            :class="{ expanded: activeCardId === task.id }"
           >
-            <div 
-              class="task-card" 
-              :class="{ 'is-overdue': isOverdue(task.fullDate) }"
+            <div
+              class="task-card"
+              :class="{ 'is-overdue': isOverdue(task.date) }"
             >
-              <div class="task-color-strip" :style="{ backgroundColor: getSubjectColor(task.subject) }"></div>
-              
+              <div
+                class="task-color-strip"
+                :style="{ backgroundColor: getSubjectColor(task.disciplina) }"
+              ></div>
+
               <div class="task-content">
                 <div class="task-header">
-                  <span class="subject-tag" :style="{ color: getSubjectColor(task.subject) }">
-                    {{ task.subject }}
+                  <span
+                    class="subject-tag"
+                    :style="{ color: getSubjectColor(task.disciplina) }"
+                  >
+                    {{ task.disciplina }}
                   </span>
-                  
-                  <span 
-                    class="date-tag" 
-                    :class="{ 'overdue': isOverdue(task.fullDate), 'd-tag': !isOverdue(task.fullDate) }">
-                    {{ getReviewLabel(task.topic, task.fullDate) }}
+
+                  <span
+                    class="date-tag"
+                    :class="{ overdue: isOverdue(task.date), 'd-tag': !isOverdue(task.date) }"
+                  >
+                    {{ getReviewLabel(task.date) }}
                   </span>
                 </div>
-                <h4>{{ task.topic.replace(/Revisão \d+: /, '') }}</h4>
+
+                <h4>{{ task.conteudo }}</h4>
+                <small class="tempo-info">{{ task.tempo }}</small>
               </div>
-              
-              <button 
-                class="check-btn" 
-                :class="{ 'active': activeCardId === task.id }"
-                @click="toggleDrawer(task)" 
-                title="Concluir">
-                <i class="bi" :class="activeCardId === task.id ? 'bi-x-lg' : 'bi-check-lg'"></i>
+
+              <button
+                class="check-btn"
+                :class="{ active: activeCardId === task.id }"
+                @click="toggleDrawer(task)"
+              >
+                <i
+                  class="bi"
+                  :class="activeCardId === task.id ? 'bi-x-lg' : 'bi-check-lg'"
+                ></i>
               </button>
             </div>
 
+            <!-- DRAWER -->
             <div v-if="activeCardId === task.id" class="review-drawer">
               <div class="drawer-label">Quanto tempo você dedicou?</div>
-              
+
               <div class="drawer-inputs">
                 <div class="time-group">
-                  <input type="number" v-model="timeForm.hours" min="0" placeholder="0">
+                  <input type="number" v-model="timeForm.hours" min="0" />
                   <span>h</span>
                 </div>
+
                 <div class="time-group">
-                  <input type="number" v-model="timeForm.minutes" min="0" max="59" placeholder="30">
+                  <input type="number" v-model="timeForm.minutes" min="0" max="59" />
                   <span>m</span>
                 </div>
-                
+
                 <button class="btn-confirm" @click="confirmCompletion(task)">
                   Concluir <i class="bi bi-check2"></i>
                 </button>
               </div>
             </div>
-
           </div>
 
           <div v-if="todoList.length === 0" class="empty-state">
-            <div class="icon-circle"><i class="bi bi-trophy-fill"></i></div>
+            <div class="icon-circle">
+              <i class="bi bi-trophy-fill"></i>
+            </div>
             <h3>Tudo em dia!</h3>
-            <p>Nenhuma revisão pendente para hoje.</p>
+            <p>Nenhuma revisão pendente.</p>
           </div>
         </div>
       </section>
 
+      <!-- =============================== -->
+      <!-- CONCLUÍDAS -->
+      <!-- =============================== -->
       <section class="column done-column">
         <header class="column-header">
           <div class="title-group">
@@ -219,15 +197,26 @@ const confirmCompletion = (task) => {
 
         <div class="task-list">
           <transition-group name="list">
-            <div v-for="task in doneList" :key="task.id" class="task-card done">
-              <div class="task-color-strip" style="background: #e0e0e0"></div>
+            <div
+              v-for="task in doneList"
+              :key="task.id"
+              class="task-card done"
+            >
+              <div class="task-color-strip" style="background:#e0e0e0"></div>
+
               <div class="task-content">
-                <div class="task-header">
-                  <span class="subject-tag" style="color: #bbb">{{ task.subject }}</span>
-                </div>
-                <h4 style="color: #aaa; text-decoration: line-through;">{{ task.topic.replace(/Revisão \d+: /, '') }}</h4>
+                <span class="subject-tag" style="color:#bbb">
+                  {{ task.disciplina }}
+                </span>
+                <h4 style="text-decoration: line-through">
+                  {{ task.conteudo }}
+                </h4>
+                <small>{{ task.tempo }}</small>
               </div>
-              <div class="done-icon"><i class="bi bi-check2-circle"></i></div>
+
+              <div class="done-icon">
+                <i class="bi bi-check2-circle"></i>
+              </div>
             </div>
           </transition-group>
 
@@ -238,7 +227,6 @@ const confirmCompletion = (task) => {
       </section>
 
     </div>
-
   </div>
 </template>
 

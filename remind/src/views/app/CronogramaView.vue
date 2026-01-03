@@ -1,206 +1,178 @@
 <script setup>
-// ==========================================
-// 1. IMPORTS
-// ==========================================
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useScheduleStore } from '../../stores/scheduleStore'
 
-// ==========================================
-// 2. MODEL ACCESS
-// ==========================================
 const scheduleStore = useScheduleStore()
 
-// ==========================================
-// 3. VIEW MODEL (Estado & Lógica)
-// ==========================================
+const weekDays = ref([])
+const selectedDay = ref(null)
 
-// --- Estado Local ---
-const weekDays = ref([])      // Array com os 7 dias da semana atual
-const selectedDay = ref(null) // Objeto do dia atualmente clicado
-
-// --- Computados de Apresentação  ---
-
-/**
- * Define o Título do Card Principal baseado no status do dia selecionado.
- */
+// ==============================
+// HEADER
+// ==============================
 const headerTitle = computed(() => {
-  const status = selectedDay.value?.status
-  if (status === 'today') return 'Visão de Hoje'
-  if (status === 'past') return 'Histórico do Dia'
+  if (selectedDay.value?.status === 'today') return 'Visão de Hoje'
+  if (selectedDay.value?.status === 'past') return 'Histórico do Dia'
   return 'Cronograma de Revisões'
 })
 
-/**
- * Define o Ícone do Header baseado no status.
- */
 const headerIcon = computed(() => {
-  const status = selectedDay.value?.status
-  if (status === 'past') return 'bi-clock-history'
-  if (status === 'today') return 'bi-calendar-check'
+  if (selectedDay.value?.status === 'past') return 'bi-clock-history'
+  if (selectedDay.value?.status === 'today') return 'bi-calendar-check'
   return 'bi-calendar-week'
 })
 
-/**
- * Combina e Filtra a lista de atividades para o dia selecionado.
- * Junta: Revisões Agendadas + Logs de Estudo já feitos.
- */
+// ==============================
+// LISTA FINAL (SEM FALLBACK)
+// ==============================
 const displayList = computed(() => {
   if (!selectedDay.value) return []
-  
-  const dayNum = selectedDay.value.number
-  
-  // 1. Logs de estudo feitos neste dia
-  const logs = scheduleStore.studyLogs.filter(l => l.day === dayNum)
-  
-  // 2. Revisões agendadas para este dia
-  const reviews = scheduleStore.futureReviews.filter(r => r.day === dayNum)
-  
-  // Retorna tudo junto
-  return [...reviews, ...logs]
+
+  // HOJE
+  if (selectedDay.value.status === 'today') {
+    return scheduleStore.todayStudies.map(i => ({
+      id: i.id,
+      time: i.time,
+      disciplina: i.subject,
+      conteudo: i.topic,
+      tempo: `${Math.floor(i.duration / 60)}h${i.duration % 60 || '0'}m`,
+      status: 'done'
+    }))
+  }
+
+  // PASSADO
+  if (selectedDay.value.status === 'past') {
+    return scheduleStore.historyStudies.map(i => ({
+      id: i.id,
+      time: i.time,
+      disciplina: i.disciplina,
+      conteudo: i.conteudo,
+      tempo: `${Math.floor(i.duration / 60)}h${i.duration % 60 || '0'}m`,
+      status: 'done'
+    }))
+  }
+
+  // 🔥 FUTURO / CRONOGRAMA (BACKEND)
+  return scheduleStore.scheduleStudies.map(r => ({
+    id: r.id,
+    time: r.time,
+    disciplina: r.disciplina,
+    conteudo: r.conteudo,
+    tempo: r.tempo, // já vem "1h20m"
+    status: r.status
+  }))
 })
 
-// --- Helpers ---
 
-const formatDuration = (totalMinutes) => {
-  if (!totalMinutes) return ''
-  const h = Math.floor(totalMinutes / 60)
-  const m = totalMinutes % 60
-  
-  if (h > 0 && m > 0) return `${h}h ${m}m`
-  if (h > 0) return `${h}h`
-  return `${m}m`
-}
+// ==============================
+// LOAD SEMANA
+// ==============================
+onMounted(async () => {
+  await scheduleStore.loadWeek()
 
-// ==========================================
-// 4. LIFECYCLE (Inicialização)
-// ==========================================
-// 
-onMounted(() => {
-  const today = new Date()
-  const currentDay = today.getDate()
-  
-  // Lógica Simplificada: Assume que a semana começa Segunda-feira 
-  const startOfWeek = currentDay - today.getDay() + 1 
-  
-  const days = []
   const weekNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-  // Gera os 7 dias da semana
-  for (let i = 0; i < 7; i++) {
-    const dayNumber = startOfWeek + i
-    
-    // Verifica no Model se há atividades para pintar a "bolinha" (dot)
-    const hasFutureReview = scheduleStore.futureReviews.some(r => r.day === dayNumber && r.status === 'pending')
-    const hasPastLog = scheduleStore.studyLogs.some(l => l.day === dayNumber)
+  weekDays.value = scheduleStore.weekStudies.map(item => {
+    const dateObj = new Date(item.data + 'T00:00:00')
 
-    // Lógica para rotacionar nomes (Segunda vira índice 1, Domingo vira 0)
-    const nameIndex = i === 6 ? 0 : i + 1
+    return {
+      name: weekNames[dateObj.getDay()],
+      number: dateObj.getDate(),
+      fullDate: item.data,
+      isToday: item.offset === 0,
+      status:
+        item.offset === 0
+          ? 'today'
+          : item.offset < 0
+            ? 'past'
+            : 'future',
+      hasDot: item.tem_conteudo
+    }
+  })
 
-    days.push({
-      name: weekNames[nameIndex],
-      number: dayNumber,
-      isToday: dayNumber === currentDay,
-      // Define se é passado, hoje ou futuro para estilização
-      status: dayNumber === currentDay ? 'today' : (dayNumber < currentDay ? 'past' : 'future'),
-      hasDot: hasFutureReview || (hasPastLog && dayNumber !== currentDay)
-    })
+  selectedDay.value =
+    weekDays.value.find(d => d.isToday) || weekDays.value[0]
+})
+
+// ==============================
+// WATCH DIA
+// ==============================
+watch(selectedDay, async (day) => {
+  if (!day) return
+
+  if (day.status === 'today') {
+    await scheduleStore.loadToday()
+  } else if (day.status === 'past') {
+    await scheduleStore.loadHistory(day.fullDate)
+  } else {
+    await scheduleStore.loadSchedule(day.fullDate)
   }
-  
-  weekDays.value = days
-  
-  // Seleciona o dia de hoje automaticamente ao abrir
-  selectedDay.value = days.find(d => d.isToday) || days[0]
 })
 </script>
 
 <template>
   <div class="schedule-container">
-    
+
+    <!-- SEMANA -->
     <section class="week-calendar">
-      <div 
-        v-for="(day, index) in weekDays" 
-        :key="index"
+      <div
+        v-for="day in weekDays"
+        :key="day.fullDate"
         class="day-pill"
-        :class="{ 'active': day === selectedDay, 'today-border': day.isToday }"
-        @click="selectedDay = day">
-        
+        :class="{ active: day === selectedDay, 'today-border': day.isToday }"
+        @click="selectedDay = day"
+      >
         <span class="day-name">{{ day.name }}</span>
         <span class="day-number">{{ day.number }}</span>
-        
         <div v-if="day.hasDot" class="dot-indicator"></div>
       </div>
     </section>
 
-    <section class="info-card fade-in">
-      
+    <!-- CARD -->
+    <section class="info-card">
+
       <div class="card-header centered">
         <div class="status-icon">
           <i class="bi" :class="headerIcon"></i>
         </div>
         <h3>{{ headerTitle }}</h3>
-        
-        <p v-if="selectedDay?.status === 'today'">
-          Use o botão <strong>"+ Novo Estudo"</strong> no topo para registrar atividades.
-        </p>
       </div>
 
       <div class="history-list">
-        <div v-for="item in displayList" :key="item.id" class="history-item slide-up" 
-             :class="{ 'review-item': item.type === 'review' }">
-          
+        <div
+          v-for="item in displayList"
+          :key="item.id"
+          class="history-item"
+        >
           <div class="time-col">
-            <span v-if="!item.type" class="time-text">{{ item.time }}</span>
-            <i v-else class="bi bi-arrow-repeat small-dot" title="Revisão Automática"></i>
+            {{ item.time }}
           </div>
-          
+
           <div class="info-col">
-            <strong>{{ item.subject }}</strong>
-            <span>{{ item.topic }}</span>
+            <strong>{{ item.disciplina }}</strong>
+            <span>{{ item.conteudo }}</span>
           </div>
-          
+
           <div class="actions-col">
-            
-            <div v-if="!item.type" class="log-details">
-              <span class="duration-badge">
-                <i class="bi bi-hourglass-split"></i> {{ formatDuration(item.duration) }}
-              </span>
-              <span v-if="item.difficulty" class="badge" :class="item.difficulty.toLowerCase()">
-                {{ item.difficulty }}
-              </span>
-            </div>
+            <span class="duration-badge">
+              {{ item.tempo }}
+            </span>
 
-            <div v-else>
-              <span v-if="item.status === 'done'" class="status-done">
-                <i class="bi bi-check-circle-fill"></i> Feito
-              </span>
-              
-              <span v-else-if="selectedDay?.status === 'past'" class="badge-missed">
-                <i class="bi bi-x-circle"></i> Não Realizado
-              </span>
+            <span v-if="item.status === 'done'" class="status-done">
+              ✔
+            </span>
 
-              <span v-else class="badge-review">
-                Revisão
-              </span>
-            </div>
-
-            <button 
-              v-if="!item.type" 
-              class="btn-delete" 
-              @click.stop="scheduleStore.deleteStudyLog(item.id)" 
-              title="Excluir registro">
-              <i class="bi bi-trash"></i>
-            </button>
+            <span v-else class="badge-review">
+              Revisão
+            </span>
           </div>
-
         </div>
 
         <div v-if="displayList.length === 0" class="empty-state">
-          <i class="bi bi-journal-x"></i>
-          <p>Nenhuma atividade registrada ou agendada.</p>
+          <p>Nenhuma atividade registrada.</p>
         </div>
       </div>
     </section>
-
   </div>
 </template>
 
