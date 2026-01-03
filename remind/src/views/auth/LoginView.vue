@@ -1,11 +1,15 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router' // 1. Importando o roteador
+import { useRouter } from 'vue-router'
 import LogoInicio from '../../assets/img/LogoInicio.png'
 
-const router = useRouter() // 2. Iniciando o roteador
+// ✅ IMPORTS CORRETOS (login + cadastro)
+import { loginUser, registerUser } from '../../services/authService'
+
+const router = useRouter()
 
 const isLogin = ref(true)
+const loading = ref(false)
 
 const form = ref({
   nome: '',
@@ -18,17 +22,57 @@ const toggleMode = () => {
   isLogin.value = !isLogin.value
 }
 
-const handleSubmit = () => {
-  if (isLogin.value) {
-    // Lógica de Login
-    // Aqui futuramente validaremos com a API do Marcos
-    
-    // 3. Redireciona para o painel principal
-    router.push('/app/dashboard') 
-  } else {
-    // Lógica de Cadastro
-    alert(`Enviando Cadastro: ${form.value.nome}`)
-    // Após cadastrar, você pode redirecionar para o login ou direto pro dashboard
+const handleSubmit = async () => {
+  loading.value = true
+
+  try {
+    // 🔐 LOGIN
+    if (isLogin.value) {
+      const result = await loginUser({
+        email: form.value.email,
+        senha: form.value.senha
+      })
+
+      if (result?.access_token) {
+        localStorage.setItem('token', result.access_token)
+      }
+
+      router.push('/app/dashboard')
+      return
+    }
+
+    // 📝 CADASTRO
+    if (form.value.senha !== form.value.confirmarSenha) {
+      alert('As senhas não conferem')
+      return
+    }
+
+    await registerUser({
+      nome: form.value.nome,
+      email: form.value.email,
+      senha: form.value.senha,
+      confirma: form.value.confirmarSenha
+    })
+
+    alert('Usuário criado com sucesso! Faça login.')
+
+    isLogin.value = true
+
+    form.value = {
+      nome: '',
+      email: '',
+      senha: '',
+      confirmarSenha: ''
+    }
+
+  } catch (error) {
+    console.error(error)
+    alert(
+      error.response?.data?.detail ||
+      'Erro ao processar a requisição'
+    )
+  } finally {
+    loading.value = false
   }
 }
 </script>
