@@ -3,10 +3,14 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import LogoInicio from '../../assets/img/LogoInicio.png'
 
-// ✅ IMPORTS CORRETOS (login + cadastro)
+// services
 import { loginUser, registerUser } from '../../services/authService'
 
+// store de autenticação
+import { useAuthStore } from '../../stores/authStore'
+
 const router = useRouter()
+const authStore = useAuthStore()
 
 const isLogin = ref(true)
 const loading = ref(false)
@@ -33,9 +37,8 @@ const handleSubmit = async () => {
         senha: form.value.senha
       })
 
-      if (result?.access_token) {
-        localStorage.setItem('token', result.access_token)
-      }
+      // ✅ SALVA O USUÁRIO INTEIRO (campo correto)
+      authStore.setUser(result.user)
 
       router.push('/app/dashboard')
       return
@@ -76,6 +79,7 @@ const handleSubmit = async () => {
   }
 }
 </script>
+
 
 <template>
   <div class="login-page">
