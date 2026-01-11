@@ -1,168 +1,155 @@
-/*
-  ARQUIVO: src/stores/dashboardStore.js
-  DESCRIÇÃO: ViewModel do Dashboard.
-  ARQUITETURA:
-    - Atua como uma camada de computação (Read-Only).
-    - Consome dados brutos da 'scheduleStore' (Model).
-    - Entrega dados formatados para a 'DashboardView' (View).
-*/
-
 import { defineStore } from 'pinia'
-import { computed } from 'vue'
-import { useScheduleStore } from './scheduleStore'
+import { ref } from 'vue'
+import { 
+  getDashboardStatsApi, 
+  getStreakApi, 
+  getReportDownloadLinkApi,
+  getWeekStudies,
+  getScheduleStudies
+} from '../services/studyService'
+import { useAuthStore } from './authStore'
 
 export const useDashboardStore = defineStore('dashboard', () => {
   
-  // Acesso ao Model (Dados Reais)
-  const scheduleStore = useScheduleStore()
+  const authStore = useAuthStore()
 
-  // ==========================================
-  // 1. CARDS DE ESTATÍSTICAS (STATS)
-  // ==========================================
-  // Retorna um array de objetos prontos para serem iterados no v-for da View.
+  const isLoading = ref(false)
+  const isGeneratingReport = ref(false)
   
-  const stats = computed(() => {
-    
-    // --- 1.1 REVISÕES PARA HOJE ---
-    const reviewsToday = scheduleStore.futureReviews.filter(r => {
-      const rDate = new Date(r.fullDate + 'T00:00:00')
-      // Conta se está pendente E se a data é hoje ou passado (atrasada)
-      return r.status === 'pending' && rDate <= new Date()
-    }).length
+  const stats = ref([
+    { title: 'Revisões Hoje', value: 0, icon: 'bi-check2-circle', color: '#2F80ED', bg: 'rgba(47, 128, 237, 0.1)' },
+    { title: 'Dias de Ofensiva', value: '0 dias', icon: 'bi-fire', color: '#F2994A', bg: 'rgba(242, 153, 74, 0.1)' },
+    { title: 'Tempo Geral', value: '0h', icon: 'bi-hourglass-split', color: '#8456B5', bg: 'rgba(132, 86, 181, 0.1)' },
+    { title: 'Mais Estudada', value: '-', icon: 'bi-book', color: '#F2C94C', bg: 'rgba(242, 201, 76, 0.1)' }
+  ])
 
-    // --- 1.2 CÁLCULO DE OFENSIVA (STREAK) ---
-    // Algoritmo para contar dias consecutivos de estudo
-    const uniqueDays = [...new Set(scheduleStore.studyLogs.map(l => {
-      // Extrai apenas a data YYYY-MM-DD
-      return new Date(l.fullDate).toISOString().split('T')[0]
-    }))].sort((a, b) => new Date(b) - new Date(a)) // Ordena do mais recente
+  const weeklyActivity = ref([]) 
+  const upcomingReviews = ref([]) 
 
-    let streak = 0
-    const today = new Date().toISOString().split('T')[0]
-    const yesterday = new Date()
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().split('T')[0]
+  const dayMap = {
+    'Sun': 'Dom', 'Mon': 'Seg', 'Tue': 'Ter', 'Wed': 'Qua', 'Thu': 'Qui', 'Fri': 'Sex', 'Sat': 'Sáb'
+  }
+  
+  const daysPT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-    // Só calcula se houver histórico
-    if (uniqueDays.length > 0) {
-      const lastStudyDate = uniqueDays[0]
+  function resolveUserId() {
+    let uid = authStore.user?.id || authStore.user?._id || authStore.user?.uid || authStore.user?.email
+    if (!uid) {
+        const stored = localStorage.getItem('user')
+        if (stored) {
+            const parsed = JSON.parse(stored)
+            uid = parsed.id || parsed._id || parsed.uid || parsed.email
+        }
+    }
+    if (!uid) throw new Error('Usuário não autenticado.')
+    return uid
+  }
+
+  async function loadDashboardData() {
+    isLoading.value = true
+    try {
+      const userId = resolveUserId()
+
+      const [dashData, streakData, weekCalendar] = await Promise.all([
+        getDashboardStatsApi(userId),
+        getStreakApi(userId),
+        getWeekStudies(userId).catch(() => []) 
+      ])
+
+      const cards = dashData.cards || {}
+      stats.value[0].value = cards.revisoes_hoje || 0
       
-      // A ofensiva só é válida se o último estudo foi Hoje ou Ontem.
-      // Se o último estudo foi anteontem, a sequência quebrou.
-      if (lastStudyDate === today || lastStudyDate === yesterdayStr) {
-        
-        // Itera para trás contando dias consecutivos
-        for (let i = 0; i < uniqueDays.length; i++) {
-          if (i === 0) {
-            streak = 1 // Começa a contagem
-          } else {
-            // Verifica a distância entre o dia atual (i) e o anterior (i-1)
-            const prevDate = new Date(uniqueDays[i-1])
-            const currDate = new Date(uniqueDays[i])
-            const gap = (prevDate - currDate) / (1000 * 60 * 60 * 24)
-            
-            // Se a diferença for exatamente 1 dia, incrementa. Senão, para.
-            if (gap === 1) streak++ 
-            else break
+      const dias = (typeof streakData === 'object') ? (streakData.current_streak || streakData.days || 0) : streakData
+      stats.value[1].value = `${dias} dias`
+
+      stats.value[2].value = cards.tempo_total || '0h'
+      stats.value[3].value = cards.disciplina_mais_estudada || 'Nenhuma'
+
+      if (dashData.atividade_semanal && Array.isArray(dashData.atividade_semanal)) {
+        const maxValue = Math.max(...dashData.atividade_semanal.map(d => d.total || 0), 4)
+        const todayLabel = daysPT[new Date().getDay()]
+
+        weeklyActivity.value = dashData.atividade_semanal.map(item => {
+          const ptLabel = dayMap[item.dia] || item.dia
+          return {
+            day: ptLabel,
+            value: item.total || 0,
+            percent: Math.round(((item.total || 0) / maxValue) * 100),
+            isToday: ptLabel === todayLabel
           }
-        }
+        })
+      } else {
+        weeklyActivity.value = []
       }
+
+      let datesToFetch = []
+      if (Array.isArray(weekCalendar)) {
+        const todayStr = new Date().toISOString().split('T')[0]
+        datesToFetch = weekCalendar
+          .filter(day => day.tem_conteudo === true && day.data >= todayStr)
+          .map(day => day.data) 
+      }
+
+      if (datesToFetch.length === 0) {
+        datesToFetch.push(new Date().toISOString().split('T')[0])
+      }
+
+      const schedulePromises = datesToFetch.map(date => 
+        getScheduleStudies(userId, date)
+          .then(res => res.revisions || res.schedule || res || []) 
+          .catch(() => [])
+      )
+
+      const results = await Promise.all(schedulePromises)
+      const allUpcoming = results.flat()
+
+      upcomingReviews.value = allUpcoming
+        .filter(item => !item.realizada)
+        .slice(0, 6)
+        .map(item => ({
+          id: item._id || item.id,
+          subject: item.disciplina || 'Sem Disciplina',
+          topic: item.conteudo || 'Sem Tópico',
+          date: item.data_revisao 
+            ? new Date(item.data_revisao).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+            : '--/--',
+          status: 'pending',
+          tag: 'Pendente'
+        }))
+
+    } catch (error) {
+    } finally {
+      isLoading.value = false
     }
+  }
 
-    // --- 1.3 TEMPO TOTAL DE ESTUDO ---
-    const totalMinutes = scheduleStore.studyLogs.reduce((acc, log) => acc + (log.duration || 0), 0)
-    const h = Math.floor(totalMinutes / 60)
-    const m = totalMinutes % 60
-    const timeString = `${h}h ${m}m`
-
-    // --- 1.4 DISCIPLINA MAIS ESTUDADA ---
-    const subjectTimes = {}
-    // Agrupa tempo por matéria
-    scheduleStore.studyLogs.forEach(log => {
-      subjectTimes[log.subject] = (subjectTimes[log.subject] || 0) + log.duration
-    })
-    
-    // Encontra a maior
-    let topSubject = 'Nenhuma'
-    let maxVal = 0
-    for (const [sub, time] of Object.entries(subjectTimes)) {
-      if (time > maxVal) { maxVal = time; topSubject = sub }
+  async function downloadReport() {
+    isGeneratingReport.value = true
+    try {
+      const userId = resolveUserId()
+      const response = await getReportDownloadLinkApi(userId)
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Relatorio_ReMind.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      alert('Erro ao gerar relatório.')
+    } finally {
+      isGeneratingReport.value = false
     }
+  }
 
-    // Retorna estrutura visual (Ícone, Valor, Título, Cor)
-    return [
-      { 
-        icon: 'bi-calendar-event', value: reviewsToday, title: 'Revisões Hoje', 
-        color: '#2F80ED', bg: 'rgba(47, 128, 237, 0.1)' 
-      },
-      { 
-        icon: 'bi-fire', value: streak, title: 'Dias de Ofensiva', 
-        color: '#F2994A', bg: 'rgba(242, 153, 74, 0.1)' 
-      },
-      { 
-        icon: 'bi-hourglass-split', value: timeString, title: 'Tempo Geral', 
-        color: '#8456B5', bg: 'rgba(132, 86, 181, 0.1)' 
-      },
-      { 
-        icon: 'bi-star-fill', value: topSubject, title: 'Mais Estudada', 
-        color: '#F2C94C', bg: 'rgba(242, 201, 76, 0.1)' 
-      }
-    ]
-  })
-
-  // ==========================================
-  // 2. GRÁFICO DE ATIVIDADE SEMANAL
-  // ==========================================
-  const weeklyActivity = computed(() => {
-    const daysOfWeek = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-    // Inicializa array zerado
-    const activity = daysOfWeek.map(day => ({ day, minutes: 0, percent: 0 }))
-
-    // Soma minutos por dia da semana (0-6)
-    scheduleStore.studyLogs.forEach(log => {
-      if (log.fullDate) {
-        const d = new Date(log.fullDate)
-        const dayIndex = d.getDay() // 0 = Domingo, etc.
-        if (activity[dayIndex]) activity[dayIndex].minutes += (log.duration || 0)
-      }
-    })
-
-    // Calcula porcentagem relativa ao maior valor (para altura da barra CSS)
-    const maxMinutes = Math.max(...activity.map(a => a.minutes), 60) // Mínimo de 60 para não quebrar escala
-    
-    return activity.map(item => ({
-      day: item.day,
-      minutes: item.minutes,
-      percent: Math.round((item.minutes / maxMinutes) * 100)
-    }))
-  })
-
-  // ==========================================
-  // 3. LISTA DE PRÓXIMAS REVISÕES
-  // ==========================================
-  const upcomingReviews = computed(() => {
-    const today = new Date()
-    today.setHours(0,0,0,0)
-
-    return scheduleStore.futureReviews
-      .filter(r => r.status === 'pending')
-      .filter(r => new Date(r.fullDate) >= today) // Apenas futuras ou hoje (não mostra atrasadas aqui)
-      .sort((a, b) => new Date(a.fullDate) - new Date(b.fullDate))
-      .slice(0, 4) // Pega apenas as 4 primeiras
-      .map(r => {
-        // Formata data DD/MM
-        const d = new Date(r.fullDate)
-        const day = d.getDate().toString().padStart(2, '0')
-        const month = (d.getMonth()+1).toString().padStart(2, '0')
-        
-        return {
-          subject: r.subject,
-          topic: r.topic.replace(/Revisão \d+: /, ''), // Remove prefixo técnico
-          date: `${day}/${month}`,
-          tag: r.topic.includes('Revisão') ? 'Revisão' : 'Estudo'
-        }
-      })
-  })
-
-  return { stats, weeklyActivity, upcomingReviews }
+  return {
+    isLoading,
+    isGeneratingReport,
+    stats,
+    weeklyActivity,
+    upcomingReviews,
+    loadDashboardData,
+    downloadReport
+  }
 })

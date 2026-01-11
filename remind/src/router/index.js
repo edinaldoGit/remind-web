@@ -1,22 +1,9 @@
-/*
-  ARQUIVO: src/router/index.js
-  DESCRIÇÃO: Configuração central de rotas da aplicação.
-  ESTRUTURA:
-    - Rota Raiz ('/'): Login (Pública)
-    - Rota App ('/app'): Layout Principal (Protegida/Privada)
-      - Carrega as Views dentro do <router-view> do AppLayout.vue
-*/
-
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../stores/authStore'
 
-// --- 1. IMPORTS DAS VIEWS ---
-// Auth
 import LoginView from '../views/auth/LoginView.vue'
-
-// Layout
 import AppLayout from '../components/layout/AppLayout.vue' 
 
-// App Views
 import DashboardView from '../views/app/DashboardView.vue'
 import CronogramaView from '../views/app/CronogramaView.vue'
 import RevisoesView from '../views/app/RevisoesView.vue'
@@ -26,27 +13,17 @@ import PerfilView from '../views/app/PerfilView.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    
-    // ==================================================
-    // 1. ROTAS PÚBLICAS (Sem Layout/Sidebar)
-    // ==================================================
     {
       path: '/',
       name: 'login',
       component: LoginView,
       meta: { title: 'Login - ReMind' }
     },
-
-    // ==================================================
-    // 2. ROTAS PROTEGIDAS (Com Sidebar e Header)
-    // ==================================================
     {
       path: '/app',
-      component: AppLayout, // O Layout que contém o <router-view> filho
-      
-      // MELHORIA: Se acessar /app direto, redireciona para o dashboard
+      component: AppLayout,
       redirect: '/app/dashboard', 
-      
+      meta: { requiresAuth: true }, 
       children: [
         {
           path: 'dashboard',
@@ -80,20 +57,25 @@ const router = createRouter({
         }
       ]
     },
-
-    // ==================================================
-    // 3. ROTA DE CAPTURA (404)
-    // ==================================================
     {
       path: '/:pathMatch(.*)*',
-      redirect: '/' // Qualquer rota inválida volta pro Login
+      redirect: '/' 
     }
   ]
 })
 
-// --- GUARD GLOBAL (Opcional: Muda o título da aba do navegador) ---
 router.beforeEach((to, from, next) => {
+  const authStore = useAuthStore()
+
   document.title = to.meta.title ? `${to.meta.title} | ReMind` : 'ReMind'
+
+  if (to.matched.some(record => record.meta.requiresAuth)) {
+    if (!authStore.isAuthenticated()) {
+      next('/') 
+      return
+    }
+  }
+
   next()
 })
 
